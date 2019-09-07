@@ -1,0 +1,132 @@
+// プロパティ取得
+var PROPERTIES = PropertiesService.getScriptProperties();//ファイル > プロジェクトのプロパティから設定した環境変数的なもの
+//LINEの設定をプロジェクトのプロパティから取得
+var LINE_ACCESS_TOKEN = PROPERTIES.getProperty('LINE_ACCESS_TOKEN');
+//A3RTの設定をプロジェクトのプロパティから取得
+var A3RT_ACCESS_TOKEN = PROPERTIES.getProperty('A3RT_ACCESS_TOKEN');
+
+var STATUS_SUCCESS = 0;
+
+function doGet(e) {
+  var p = e.parameter;
+  var translatedText = LanguageApp.translate(p.text, p.source, p.target);
+  return ContentService.createTextOutput(translatedText);
+}
+
+function doPost(e) {
+  var reply_token= JSON.parse(e.postData.contents).events[0].replyToken;
+  if (typeof reply_token === 'undefined') {
+    return;
+  }
+  var user_message = JSON.parse(e.postData.contents).events[0].message.text;
+  Logger.log(user_message);
+
+  var reply_message = "";
+  var reply_image = "";  
+  var genreList = ["笑える","泣ける","さわやか","萌える","考える"];
+  var comboyList = ["こんこん","コンコン"];
+  
+  if(comboyList.indexOf(user_message) >= 0){
+    reply_message = "おすすめのコンコンは、";
+    reply_image = "https://drive.google.com/uc?export=view&id=1atDBxgPETOE58P_M0Ke5qCA-7LTfDWjc";
+    var reply_gaiyou = "中学３年生 本名は内緒\nあだ名はゲジゲジ\n謎に生徒会役員だった";
+  } else if(genreList.indexOf(user_message) < 0) {
+    // A3RTで返答する
+    reply_message = a3rt(user_message);
+    // 追記
+    var add_reply_message = "それよりも、\n「笑える」\n「泣ける」\n「さわやか」\n「萌える」\n「考える」\nから選んでね！！！"
+  }　else {
+    var reply = selectAnime(user_message);
+    var reply_heder = "おすすめの" + user_message + "アニメは、"
+    reply_message = reply_heder + "\n「" + reply[1] + "」\n" + reply[2];
+    reply_image = reply[4];
+    var reply_gaiyou = reply[5];
+  }
+  
+  var messages = [{
+        'type': 'text',
+        'text': reply_message,
+      }]
+                  
+  if (reply_image != "") {
+    messages.push({
+        'type': 'text',
+        'text': reply_gaiyou
+    });
+    messages.push({
+        "type": "image",
+        "originalContentUrl": reply_image,
+        "previewImageUrl": reply_image
+      });
+  } else {
+        messages.push({
+        'type': 'text',
+        'text': add_reply_message
+    });
+  }
+  
+  var url = 'https://api.line.me/v2/bot/message/reply';
+  UrlFetchApp.fetch(url, {
+    'headers': {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Authorization': 'Bearer ' + LINE_ACCESS_TOKEN,
+    },
+    'method': 'post',
+    'payload': JSON.stringify({
+      'replyToken': reply_token,
+      'messages': messages,
+    }),
+  });
+  return ContentService.createTextOutput(JSON.stringify({'content': 'post ok'})).setMimeType(ContentService.MimeType.JSON);
+}
+
+function selectAnime(genre) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName(genre);
+  var lastRow = sheet.getLastRow();
+  var lastColum = sheet.getLastColumn();
+  var list = sheet.getRange(2,1,lastRow-1,lastColum).getValues();
+  
+  var ran = Math.floor(Math.random() * lastRow);
+  Logger.log(ran);
+  var anime = list[ran];
+  var count = sheet.getRange(ran+2, 7).getValue();
+  count = count + 1;
+  sheet.getRange(ran+2, 7).setValue(count);
+  Logger.log(count)
+  Logger.log(anime);
+  return anime;
+}
+
+function a3rt(m) {
+ 
+  var user_message = m;
+  var apikey = A3RT_ACCESS_TOKEN;
+  var a3rtUrl = "https://api.a3rt.recruit-tech.co.jp/talk/v1/smalltalk";
+
+  /*---------------------------------------*/
+  /* リクエストデータ */
+  /*---------------------------------------*/
+  var req = 
+  { 
+    "apikey" : apikey,
+    "query" : user_message
+  };
+  
+  var options = 
+  {
+    "method" : "post",
+    "payload" : req
+  };
+  
+  var result = UrlFetchApp.fetch(a3rtUrl, options);
+  
+  var jsonData = JSON.parse(result.getContentText());
+  Logger.log(jsonData);
+  var reply = jsonData.results[0].reply;
+  if (jsonData.status != STATUS_SUCCESS) {
+    return;
+  }
+  Logger.log(reply);
+  return reply;
+}
